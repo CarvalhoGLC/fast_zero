@@ -24,6 +24,52 @@ def test_create_user(client: TestClient):
     }
 
 
+def test_create_user_integrity_error(client, user):
+    client.post(
+        "/users",
+        json={
+            "username": "alice",
+            "email": "alice@example.com",
+            "password": "secret",
+        },
+    )
+
+    response = client.post(
+        "/users",
+        json={
+            "username": "alice",
+            "email": "alice1@example.com",
+            "password": "secret",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert response.json() == {"detail": "Username already exists"}
+
+
+def test_create_email_integrity_error(client, user):
+    client.post(
+        "/users",
+        json={
+            "username": "alice",
+            "email": "alice@example.com",
+            "password": "secret",
+        },
+    )
+
+    response = client.post(
+        "/users",
+        json={
+            "username": "marcus",
+            "email": "alice@example.com",
+            "password": "secret",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert response.json() == {"detail": "Email already exists"}
+
+
 def test_read_users(client: TestClient):
 
     response = client.get("/users")
