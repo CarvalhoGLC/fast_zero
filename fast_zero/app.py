@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 
 from fast_zero.database import get_session
 from fast_zero.models import User
-from fast_zero.security import get_password_hash, verify_password
+from fast_zero.security import (
+    create_access_token,
+    get_current_user,
+    get_password_hash,
+    verify_password,
+)
 from schemas import Message, Token, UserList, UserPublic, UserSchema
 
 app = FastAPI()
@@ -49,7 +54,12 @@ def create_user(user: UserSchema, session=Depends(get_session)):
 
 
 @app.get("/users", status_code=HTTPStatus.OK, response_model=UserList)
-def read_users(limit=10, offset=0, session=Depends(get_session)):
+def read_users(
+    limit=10,
+    offset=0,
+    session=Depends(get_session),
+    current_user=Depends(get_current_user),
+):
     users = session.scalars(select(User).limit(limit).offset(offset))
     return {"users": users}
 
@@ -57,23 +67,27 @@ def read_users(limit=10, offset=0, session=Depends(get_session)):
 @app.put(
     "/users/{user_id}", status_code=HTTPStatus.OK, response_model=UserPublic
 )
-def update_user(user_id: int, user: UserSchema, session=Depends(get_session)):
-    user_db = session.scalar(select(User).where(User.id == user_id))
+def update_user(
+    user_id: int,
+    user: UserSchema,
+    session=Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
-    if not user_db:
+    if current_user.id != user_id:
         raise HTTPException(
-            detail="User not found!", status_code=HTTPStatus.NOT_FOUND
+            status_code=HTTPStatus.FORBIDDEN, detail="Not enough permissions"
         )
 
     try:
-        user_db.username = user.username
-        user_db.email = user.email
-        user_db.password = get_password_hash(user.password)
+        current_user.username = user.username
+        current_user.email = user.email
+        current_user.password = get_password_hash(user.password)
 
         session.commit()
-        session.refresh(user_db)
+        session.refresh(current_user)
 
-        return user_db
+        return current_user
     except IntegrityError:
         raise HTTPException(
             detail="Username or Email already exists",
@@ -84,15 +98,18 @@ def update_user(user_id: int, user: UserSchema, session=Depends(get_session)):
 @app.delete(
     "/users/{user_id}", status_code=HTTPStatus.OK, response_model=Message
 )
-def delete_user(user_id: int, session=Depends(get_session)):
-    user_db = session.scalar(select(User).where(User.id == user_id))
+def delete_user(
+    user_id: int,
+    session=Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
-    if not user_db:
+    if current_user.id != user_id:
         raise HTTPException(
-            detail="User not found!", status_code=HTTPStatus.NOT_FOUND
+            status_code=HTTPStatus.FORBIDDEN, detail="Not enough permissions"
         )
 
-    session.delete(user_db)
+    session.delete(current_user)
     session.commit()
 
     return Message(message="User deleted!")
@@ -108,18 +125,26 @@ def get_id_user(id: int, session=Depends(get_session)):
 
     return user_db
 
+
 @app.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: Session = Depends(get_session),
+):
     user = session.scalar(select(User).where(User.email == form_data.username))
-    
+
     if not user:
         raise HTTPException(
             status_code=HTTPStatus.UNAUTHORIZED,
-            detail="Incorrect email or password"
+            detail="Incorrect email or password",
         )
-        
+
     if not verify_password(form_data.password, user.password):
         raise HTTPException(
             status_code=HTTPStatus.UNAUTHORIZED,
-            detail="Incorrect email or password"
+            detail="Incorrect email or password",
         )
+
+    access_token = create_access_token({"sub": user.email})
+
+    return {"access_token": access_token, "token_type": "Bearer"}
