@@ -1,5 +1,6 @@
 from http import HTTPStatus
 
+import pytest
 from jwt import decode
 
 from fast_zero.security import create_access_token
@@ -25,11 +26,12 @@ def test_jwt_invalid(client, user):
     assert response.json() == {"detail": "Could not validate credentials"}
 
 
-def test_token_invalid_user(client):
+@pytest.mark.asyncio
+async def test_token_invalid_user(client):
     token = create_access_token(data={"sub": "alala@example.com"})
 
-    response = client.get(
-        "/users", headers={"Authorization": f"Bearer {token}"}
+    response = client.delete(
+        "/users/1", headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == HTTPStatus.UNAUTHORIZED
     assert response.json() == {"detail": "Could not validate credentials"}
